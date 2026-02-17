@@ -1,0 +1,90 @@
+version: "2.3.0"
+release_date: "2025-11-20"
+status: "stable"
+
+summary: |
+  Feature release with improved observability, cost optimization, and AI-assisted troubleshooting.
+  This release is fully backward compatible with 2.x versions.
+
+features:
+  - name: "AI-Powered Error Analysis"
+    description: "Automatically analyze errors and suggest fixes using LLM"
+    category: "ai"
+    
+  - name: "Cost Tracking and Optimization"
+    description: "Track resource costs per task and project with optimization recommendations"
+    category: "cost-management"
+    
+  - name: "Distributed Tracing"
+    description: "OpenTelemetry integration for end-to-end request tracing"
+    category: "observability"
+    
+  - name: "Multi-Region Deployments"
+    description: "Deploy tasks across multiple cloud regions with automatic failover"
+    category: "deployment"
+    
+  - name: "Custom Metrics Export"
+    description: "Export metrics to Prometheus, Datadog, New Relic"
+    category: "monitoring"
+    
+  - name: "Task Replay"
+    description: "Replay failed tasks with same inputs for debugging"
+    category: "debugging"
+
+bug_fixes:
+  - id: "BUG-3456"
+    description: "Fixed connection pool exhaustion under high load"
+    severity: "high"
+    
+  - id: "BUG-3789"
+    description: "Resolved webhook delivery failures during network partitions"
+    severity: "medium"
+    
+  - id: "BUG-4012"
+    description: "Fixed incorrect cost calculation for multi-region tasks"
+    severity: "low"
+
+breaking_changes: []
+
+deprecations:
+  - feature: "Legacy webhook format"
+    deprecated_in: "2.3.0"
+    removed_in: "3.0.0"
+    reason: "New format includes additional metadata"
+    alternative: "Use webhook v2 format with event_type field"
+
+upgrade_notes: |
+  This is a minor version upgrade. No breaking changes.
+  
+  Upgrade steps:
+  1. Review deprecation notices
+  2. Update application binaries
+  3. Restart services (rolling restart supported)
+  4. No database migration required
+  
+  New feature enablement:
+  - AI Error Analysis: Set ENABLE_AI_ANALYSIS=true and OPENAI_API_KEY
+  - Cost Tracking: Configure cloud provider credentials
+  - Distributed Tracing: Set OTEL_EXPORTER_OTLP_ENDPOINT
+
+known_issues:
+  - "AI error analysis requires OpenAI API key (not included)"
+  - "Multi-region deployments require enterprise license"
+  - "Cost tracking supports AWS and Azure only (GCP coming soon)"
+
+performance_improvements:
+  - "20% reduction in API response time"
+  - "Improved connection pool management reduces timeouts"
+  - "Optimized query plans for analytics dashboard"
+
+security_updates:
+  - "Added encryption at rest for sensitive task parameters"
+  - "Implemented mTLS for inter-service communication"
+  - "Added audit logging for all administrative actions"
+
+contributors:
+  - "DevOps Team"
+  - "Platform Engineering"
+  - "AI/ML Team"
+  - "Security Team"
+  - "Community Contributors (47)"

@@ -1,0 +1,123 @@
+version: "2.0.0"
+release_date: "2025-01-10"
+status: "stable"
+
+summary: |
+  Major release with enhanced performance, new deployment strategies, and improved error handling.
+  This release includes breaking changes to the API and database schema.
+
+features:
+  - name: "Blue-Green Deployments"
+    description: "Support for zero-downtime deployments using blue-green strategy"
+    category: "deployment"
+    
+  - name: "Canary Releases"
+    description: "Gradual rollout with automatic rollback on errors"
+    category: "deployment"
+    
+  - name: "Advanced Analytics Dashboard"
+    description: "Visualize task performance, bottlenecks, and trends"
+    category: "analytics"
+    
+  - name: "Webhook Notifications"
+    description: "Send task status updates to external systems (Slack, Teams, PagerDuty)"
+    category: "integrations"
+    
+  - name: "Task Dependencies"
+    description: "Define task execution order with DAG-based dependencies"
+    category: "core"
+    
+  - name: "Retry Policies"
+    description: "Configurable retry logic with exponential backoff"
+    category: "reliability"
+    
+  - name: "PostgreSQL Support"
+    description: "Alternative to SQLite for multi-node deployments"
+    category: "infrastructure"
+
+bug_fixes:
+  - id: "BUG-1234"
+    description: "Fixed race condition in concurrent task execution"
+    severity: "high"
+    
+  - id: "BUG-1567"
+    description: "Resolved memory leak in long-running tasks"
+    severity: "critical"
+    
+  - id: "BUG-1890"
+    description: "Fixed incorrect timezone handling in task schedules"
+    severity: "medium"
+    
+  - id: "BUG-2001"
+    description: "Corrected SQL query pagination for large result sets"
+    severity: "low"
+
+breaking_changes:
+  - change: "Database schema migration required"
+    impact: "All existing databases must be migrated using migration tool"
+    migration_guide: "Run: python migrate.py --from 1.x --to 2.0"
+    
+  - change: "API endpoint /api/tasks changed to /api/v2/tasks"
+    impact: "All API clients must update endpoint URLs"
+    migration_guide: "Update base URL in client configuration"
+    
+  - change: "Task configuration format changed from JSON to YAML"
+    impact: "Existing task definitions must be converted"
+    migration_guide: "Use converter tool: python convert_config.py"
+
+deprecations:
+  - feature: "Legacy task execution API (v1)"
+    deprecated_in: "2.0.0"
+    removed_in: "3.0.0"
+    reason: "Replaced by new orchestration engine"
+    alternative: "Use /api/v2/tasks endpoint"
+    
+  - feature: "XML-based configuration"
+    deprecated_in: "2.0.0"
+    removed_in: "2.5.0"
+    reason: "YAML provides better readability"
+    alternative: "Use YAML configuration format"
+
+upgrade_notes: |
+  IMPORTANT: This is a major version upgrade with breaking changes.
+  
+  Pre-upgrade checklist:
+  1. Backup your database
+  2. Review breaking changes section
+  3. Test in staging environment first
+  4. Schedule maintenance window (downtime: ~30 minutes)
+  
+  Upgrade steps:
+  1. Stop all running tasks
+  2. Backup database: sqlite3 database.db ".backup backup.db"
+  3. Run migration: python migrate.py --from 1.x --to 2.0
+  4. Update configuration files
+  5. Restart application
+  6. Verify health checks pass
+  
+  Rollback procedure:
+  1. Stop application
+  2. Restore database backup
+  3. Reinstall v1.x
+  4. Restart application
+
+known_issues:
+  - "PostgreSQL migration may timeout for databases >10GB"
+  - "Webhook retries limited to 3 attempts"
+  - "Blue-green deployments require 2x memory temporarily"
+
+performance_improvements:
+  - "50% faster task execution startup time"
+  - "Reduced memory usage by 30% for long-running tasks"
+  - "Database query optimization reduces load by 40%"
+
+security_updates:
+  - "Updated dependencies to patch CVE-2024-1234"
+  - "Added input validation for task parameters"
+  - "Implemented rate limiting on API endpoints"
+
+contributors:
+  - "DevOps Team"
+  - "Platform Engineering"
+  - "Security Team"
+  - "Community Contributors (23)"
