@@ -37,6 +37,10 @@ CORS(app)  # Allow cross-origin requests
 # DATABASE CONNECTIONS
 # ============================================================================
 
+import setup_database
+# Automatically initialize database on import if it doesn't exist
+setup_database.main()
+
 def get_db_connection():
     """
     Get SQLite database connection
@@ -261,13 +265,13 @@ def search_release_notes(query: str, top_k: int = 3) -> dict:
 TOOLS = [
     {
         "name": "execute_sql",
-        "description": "Execute a SQL query on the database. Use this for analytics, filtering, aggregations, and data retrieval. The database contains tables: projects, tasks, task_runs.",
+        "description": "Execute a SQL query on the database. Use this for data retrieval. MUST CALL get_database_schema FIRST to understand the tables since they change per tenant! The query property must be the exact raw SQL SELECT query to run.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "The SQL query to execute (SELECT statements only)"
+                    "description": "The exact SQL select query to execute (SELECT statements only)"
                 }
             },
             "required": ["query"]
@@ -428,11 +432,12 @@ def health():
 # ============================================================================
 
 if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 3001))
     print("=" * 60)
     print("MCP SERVER STARTING")
     print("=" * 60)
     print(f"Available tools: {list(TOOL_HANDLERS.keys())}")
-    print(f"Endpoint: http://localhost:3001/mcp")
+    print(f"Endpoint: http://0.0.0.0:{port}/mcp")
     print(f"Protocol: JSON-RPC 2.0")
     print("=" * 60)
-    app.run(host='0.0.0.0', port=3001, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=True)

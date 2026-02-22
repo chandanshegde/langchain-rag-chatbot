@@ -1,0 +1,55 @@
+graph TD
+    %% Define Styles
+    classDef frontend fill:#3b82f6,stroke:#1d4ed8,stroke-width:2px,color:#fff
+    classDef orchestrator fill:#f43f5e,stroke:#be123c,stroke-width:2px,color:#fff
+    classDef backend fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
+    classDef db fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+    classDef llm fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff
+
+    %% Nodes
+    User(("User 🧑‍💻"))
+    UI["Frontend (Svelte) 💻"]:::frontend
+    
+    subgraph "Centralized SaaS Platform"
+        Orchestrator["Central Orchestrator (LangChain Agent) 🔥"]:::orchestrator
+        Gemini["Google Gemini Model ✨"]:::llm
+    end
+
+    subgraph "Tenant A Data Silo"
+        MCP_A["Tenant A MCP Server 🛠️"]:::backend
+        DB_A[("Tenant A SQLite 🗄️")]:::db
+        Chroma_A[("Tenant A ChromaDB 📊")]:::db
+    end
+
+    subgraph "Tenant B Data Silo"
+        MCP_B["Tenant B MCP Server 🛠️"]:::backend
+        DB_B[("Tenant B SQLite 🗄️")]:::db
+        Chroma_B[("Tenant B ChromaDB 📊")]:::db
+    end
+
+    %% Connections
+    User -- "Natural Language Query" --> UI
+    UI -- "POST /chat (Tenant context)" --> Orchestrator
+    
+    Orchestrator -- "LLM Prompting & Reasoning" --> Gemini
+    Gemini -- "Needs to call Tool XYZ" --> Orchestrator
+    
+    %% Multi-Tenant Routing
+    Orchestrator -- "tools/call (JSON-RPC)" --> MCP_A
+    Orchestrator -. "tools/call (JSON-RPC)" .-> MCP_B
+    
+    %% Tenant A Tools
+    MCP_A -- "execute_sql" --> DB_A
+    MCP_A -- "search_docs" --> Chroma_A
+    
+    %% Tenant B Tools
+    MCP_B -. "execute_sql" .-> DB_B
+    MCP_B -. "search_docs" .-> Chroma_B
+    
+    %% Return Path
+    DB_A -- "Query Results" --> MCP_A
+    MCP_A -- "Tool Data Context" --> Orchestrator
+    Orchestrator -- "Synthesize Data" --> Gemini
+    Gemini -- "Final Output Strings" --> Orchestrator
+    Orchestrator -- "Response Payload" --> UI
+    UI -- "Display Bubble" --> User

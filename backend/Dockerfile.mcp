@@ -1,0 +1,14 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install necessary build tools if ChromaDB/sqlite requires them
+RUN apt-get update && apt-get install -y gcc sqlite3 libsqlite3-dev && rm -rf /var/lib/apt/lists/*
+
+# Not using a requirements.txt as you have standalone scripts, 
+# but generating dependencies directly that would be needed.
+RUN pip install flask flask-cors chromadb PyYAML requests "google-generativeai"
+
+COPY mcp_server.py .
+
+CMD ["python", "mcp_server.py"]

@@ -1,0 +1,68 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:5000
+    depends_on:
+      - orchestrator
+
+  orchestrator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.orchestrator
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TENANT_A_MCP_URL=http://tenant_a_mcp:3001/mcp
+      - TENANT_B_MCP_URL=http://tenant_b_mcp:3002/mcp
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - tenant_a_mcp
+      - tenant_b_mcp
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+
+  tenant_a_mcp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.mcp
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TENANT_NAME=Tenant A
+    volumes:
+      - tenant_a_data:/app/data
+      - tenant_a_chroma:/app/chroma_db
+
+  tenant_b_mcp:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.mcp
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - TENANT_NAME=Tenant B
+    volumes:
+      - tenant_b_data:/app/data
+      - tenant_b_chroma:/app/chroma_db
+
+volumes:
+  tenant_a_data:
+  tenant_a_chroma:
+  tenant_b_data:
+  tenant_b_chroma:
