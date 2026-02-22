@@ -1,15 +1,23 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 import os
+import logging
+import time
 import requests
 import json
-import logging
+import threading
+import queue
 from collections import defaultdict
 from typing import Dict, List, Any
 import redis
-
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import initialize_agent, AgentType
+from langchain.callbacks.base import BaseCallbackHandler
+try:
+    from langchain.agents import initialize_agent, AgentType
+except ImportError:
+    from langchain_community.agent_toolkits.load_tools import load_tools
+    from langchain.agents import AgentType, initialize_agent
+
 from langchain.tools import Tool
 
 app = Flask(__name__)
@@ -133,15 +141,34 @@ def discover_mcp_tools(mcp_url: str):
         logging.error(f"Failed to discover tools: {e}")
         return []
 
-def get_or_create_agent(tenant_id: str, mcp_url: str):
+class StreamingCallbackHandler(BaseCallbackHandler):
+    def __init__(self, q):
+        self.q = q
+
+    def on_agent_action(self, action, **kwargs):
+        # The 'log' attribute contains the LLM's full thought text leading up to the action
+        thought_text = action.log.split("Action:")[0].replace("Thought:", "").strip()
+        self.q.put({
+            "type": "thought", 
+            "tool": action.tool, 
+            "tool_input": action.tool_input,
+            "thought": thought_text
+        })
+
+    def on_tool_end(self, output, **kwargs):
+        self.q.put({"type": "observation", "observation": str(output)})
+
+def get_or_create_agent(tenant_id: str, mcp_url: str, callbacks=None):
     """
     Fetches the cached Agent for the tenant, or builds it dynamically if it doesn't exist.
     """
     if tenant_id in AGENT_CACHE:
+        logging.info(f"Using cached agent for tenant: {tenant_id}")
         return AGENT_CACHE[tenant_id]
 
+    logging.info(f"CACHE MISS for tenant: {tenant_id}. Creating new agent...")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-pro",
+        model="gemini-flash-latest",
         temperature=0,
         google_api_key=gemini_key
     )
@@ -155,13 +182,29 @@ def get_or_create_agent(tenant_id: str, mcp_url: str):
         llm,
         agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
-        max_iterations=5,
+        max_iterations=10,
         handle_parsing_errors=True,
         return_intermediate_steps=True
     )
     
-    AGENT_CACHE[tenant_id] = agent
+    # We don't cache the agent with callbacks because callbacks are per-request
+    if not callbacks:
+        AGENT_CACHE[tenant_id] = agent
     return agent
+
+def warm_up_agents():
+    """
+    Pre-initializes agents for all discovered tenants to avoid latency on the first query.
+    """
+    logging.info("Warming up agents for all tenants...")
+    for tenant_id, mcp_url in TENANT_MCP_SERVERS.items():
+        try:
+            # Wait a few seconds for MCP servers to potentially finish booting (ChromaDB can be slow)
+            logging.info(f"Pre-initializing agent for {tenant_id}...")
+            get_or_create_agent(tenant_id, mcp_url)
+            logging.info(f"Successfully warmed up agent for {tenant_id}")
+        except Exception as e:
+            logging.error(f"Failed to warm up agent for {tenant_id}: {e}")
 
 @app.route('/chat', methods=['POST', 'OPTIONS'])
 def chat():
@@ -176,7 +219,7 @@ def chat():
     data = request.json
     user_query = data.get('query', '')
     tenant_id = data.get('tenant_id', 'tenant_a')
-    session_id = data.get('session_id', 'default_user_session') # Capture User session
+    session_id = data.get('session_id', 'default_user_session')
     
     mcp_url = TENANT_MCP_SERVERS.get(tenant_id)
     if not mcp_url:
@@ -184,55 +227,59 @@ def chat():
 
     logging.info(f"[{tenant_id} | Session: {session_id}] Query received: {user_query}")
     
-    try:
-        # 1. Grab or rebuild Agent specifically configured with the Tenant's MCP tools
-        agent = get_or_create_agent(tenant_id, mcp_url)
+    def generate():
+        q = queue.Queue()
+        handler = StreamingCallbackHandler(q)
         
-        # 2. Extract recent chat history from Redis for context
+        # We need a fresh agent instance to attach the request-specific callback
+        agent = get_or_create_agent(tenant_id, mcp_url, callbacks=[handler])
+        
         history = get_session_memory(session_id)
         history_text = "\n".join([f"{msg['role']}: {msg['text']}" for msg in history])
         context_prompt = f"\n\nRecent Chat History with User:\n{history_text}\n" if history else ""
 
-        # 3. Formulate Prompt
         system_prefix = (
-            f"You are a helpful AI assistant connected to the Multi-Tenant Backend for '{tenant_id}'. "
-            "You have access to a database via the execute_sql tool, but remember the schema changes per tenant. "
-            "Use get_database_schema to learn the schema before querying."
+            f"You are a helpful AI assistant connected to the Multi-Tenant Backend for '{tenant_id}'.\n"
+            "You MUST follow the ReAct format precisely:\n"
+            "Thought: <your reasoning>\n"
+            "Action: <tool_name>\n"
+            "Action Input: <tool_input>\n\n"
+            "Once you have the final information, you MUST respond in this format:\n"
+            "Final Answer: <your natural language response to the user>\n\n"
+            "Tool Usage Rules:\n"
+            "- If you don't know the versions, search for 'list all versions' first.\n"
+            "- Always use 'get_database_schema' before running any SQL queries."
         )
         
         full_query = f"{system_prefix}{context_prompt}\n\nUser Question: {user_query}"
-        
-        # Execute the Langchain workflow (Reasoning -> Tool Call (RPC) -> Answer)
-        result = agent.invoke({"input": full_query})
-        
-        final_answer = result.get('output', 'Sorry, I failed to generate an answer.')
-        
-        # Extract intermediate steps to show the LLM's "thoughts"
-        thoughts = []
-        if 'intermediate_steps' in result:
-            for action, observation in result['intermediate_steps']:
-                thoughts.append({
-                    "tool": action.tool,
-                    "tool_input": action.tool_input,
-                    "observation": str(observation)[:200] + "..." if len(str(observation)) > 200 else observation
-                })
-        
-        # 4. Save to Redis Session Memory
-        save_session_memory(session_id, [
-            {"role": "User", "text": user_query},
-            {"role": "AI", "text": final_answer}
-        ])
-        
-    except Exception as e:
-        logging.error(f"LangChain orchestration failed: {e}")
-        final_answer = f"Error communicating with LangChain / Gemini: {str(e)}"
-        thoughts = []
 
-    return jsonify({
-        "response": final_answer,
-        "thoughts": thoughts,
-        "agent_used": f"LangChain Agent ({tenant_id})"
-    })
+        def run_agent():
+            try:
+                # Add callback to the agent call
+                result = agent.invoke({"input": full_query}, {"callbacks": [handler]})
+                final_answer = result.get('output', '')
+                q.put({"type": "final", "output": final_answer})
+                
+                # 4. Save to Redis Session Memory for context in next turn
+                save_session_memory(session_id, [
+                    {"role": "User", "text": user_query},
+                    {"role": "AI", "text": final_answer}
+                ])
+            except Exception as e:
+                logging.error(f"Agent error: {e}")
+                q.put({"type": "error", "message": str(e)})
+            finally:
+                q.put(None)
+
+        threading.Thread(target=run_agent).start()
+
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            yield f"data: {json.dumps(item)}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -244,4 +291,9 @@ if __name__ == '__main__':
     print("LANGCHAIN ORCHESTRATOR STARTING")
     print(f"Simulating Multi-Tenant routing. Port: {port}")
     print("=" * 60)
-    app.run(host='0.0.0.0', port=port, debug=True)
+    
+    # Pre-initialize agents before taking traffic
+    warm_up_agents()
+    
+    # Disable debug mode in container to prevent reloader from wiping cache
+    app.run(host='0.0.0.0', port=port, debug=False)

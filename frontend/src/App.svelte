@@ -2,23 +2,18 @@
   import ChatWindow from "./lib/ChatWindow.svelte";
   import ChatInput from "./lib/ChatInput.svelte";
 
-  let isLoading = false;
-  let activeTenant = "tenant_a"; // Track the selected RAG silo
-
-  let sessions = {};
-  let sessionIds = [];
-  let sessionId = generateSessionId();
-
-  // Initialize first session
-  sessionIds = [sessionId];
-  sessions[sessionId] = [];
-
-  // Reactively bind the messages array to the current session
-  $: messages = sessions[sessionId] || [];
-
   function generateSessionId() {
     return "session_" + Math.random().toString(36).substring(2, 9);
   }
+
+  const initialId = generateSessionId();
+  let isLoading = $state(false);
+  let activeTenant = $state("tenant_a");
+  let sessions = $state({ [initialId]: [] });
+  let sessionIds = $state([initialId]);
+  let sessionId = $state(initialId);
+
+  let messages = $derived(sessions[sessionId] || []);
 
   function startNewSession() {
     const newId = generateSessionId();
@@ -35,11 +30,11 @@
       ...sessions[sessionId],
       { text: userText, sender: "user" },
     ];
-    sessions = { ...sessions }; // trigger reactivity
     isLoading = true;
 
+    let botMsgIndex = -1;
+
     try {
-      // Calls the Central SaaS Orchestrator routing layer
       const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
       const response = await fetch(`${apiUrl}/chat`, {
         method: "POST",
@@ -51,42 +46,88 @@
         }),
       });
 
-      if (!response.ok) {
-        throw new Error("Network response was not ok");
+      if (!response.ok) throw new Error("Network response error");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // Keep partial line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              // Only create the bot bubble when we actually have content or a step
+              if (botMsgIndex === -1) {
+                botMsgIndex = sessions[sessionId].length;
+                sessions[sessionId] = [
+                  ...sessions[sessionId],
+                  {
+                    text: "",
+                    sender: "bot",
+                    thoughts: [],
+                    agentInfo: "LangChain Agent",
+                  },
+                ];
+              }
+
+              const currentMessages = [...sessions[sessionId]];
+              const msg = currentMessages[botMsgIndex];
+
+              if (data.type === "thought") {
+                msg.thoughts = [
+                  ...msg.thoughts,
+                  {
+                    tool: data.tool,
+                    tool_input: data.tool_input,
+                    thought: data.thought,
+                    observation: "Thinking...",
+                  },
+                ];
+              } else if (data.type === "observation") {
+                if (msg.thoughts.length > 0) {
+                  msg.thoughts[msg.thoughts.length - 1].observation =
+                    data.observation;
+                }
+              } else if (data.type === "final") {
+                msg.text = data.output;
+              } else if (data.type === "error") {
+                msg.text = "Error: " + data.message;
+              }
+
+              sessions[sessionId] = currentMessages;
+            } catch (e) {
+              console.error("Parse error", e);
+            }
+          }
+        }
       }
-
-      const data = await response.json();
-
-      // Handle the LLM's response
-      sessions[sessionId] = [
-        ...sessions[sessionId],
-        {
-          text: data.response || "No response received.",
-          sender: "bot",
-          agentInfo: data.agent_used || "System Router",
-          thoughts: data.thoughts || [],
-        },
-      ];
-      sessions = { ...sessions };
     } catch (e) {
       console.error(e);
-      // For demonstration if backend isn't available:
-      setTimeout(() => {
+      if (botMsgIndex === -1) {
         sessions[sessionId] = [
           ...sessions[sessionId],
           {
-            text: `Error connecting to backend API: ${e.message}`,
+            text: `Error: ${e.message}`,
             sender: "bot",
-            agentInfo: "System Error",
+            thoughts: [],
+            agentInfo: "System",
           },
         ];
-        sessions = { ...sessions };
-        isLoading = false;
-      }, 1000);
-      return;
+      } else {
+        sessions[sessionId][botMsgIndex].text = `Error: ${e.message}`;
+      }
+    } finally {
+      isLoading = false;
     }
-
-    isLoading = false;
   }
 </script>
 
@@ -131,13 +172,13 @@
               <option value={sid}>Session #{sid.slice(-6)}</option>
             {/each}
           </select>
-          <button class="new-session" on:click={startNewSession}>New</button>
+          <button class="new-session" onclick={startNewSession}>New</button>
         </div>
       </div>
     </header>
 
-    <ChatWindow {messages} />
-    <ChatInput on:submit={handleSendMessage} {isLoading} />
+    <ChatWindow {messages} {isLoading} />
+    <ChatInput onsubmit={handleSendMessage} {isLoading} />
   </div>
 </main>
 

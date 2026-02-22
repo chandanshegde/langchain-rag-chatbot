@@ -58,7 +58,7 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 # Example: "connection timeout" → [0.23, 0.45, 0.12, ...]
 google_ef = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
     api_key=os.getenv("GEMINI_API_KEY", ""),
-    model_name="models/text-embedding-004"
+    model_name="models/gemini-embedding-001"
 )
 
 # Get or create collections (like database tables, but for vectors)
@@ -82,7 +82,7 @@ except Exception as e:
 # Think of each as a @PostMapping method in Spring Boot
 # ============================================================================
 
-def execute_sql(query: str) -> dict:
+def execute_sql(query: str = "", **kwargs) -> dict:
     """
     Tool: Execute SQL query on database
     
@@ -122,7 +122,7 @@ def execute_sql(query: str) -> dict:
             "error": str(e)
         }
 
-def get_database_schema() -> dict:
+def get_database_schema(**kwargs) -> dict:
     """
     Tool: Get database schema (tables, columns, types)
     
@@ -164,7 +164,7 @@ def get_database_schema() -> dict:
             "error": str(e)
         }
 
-def search_support_docs(query: str, top_k: int = 3) -> dict:
+def search_support_docs(query: str = "", top_k: int = 3, **kwargs) -> dict:
     """
     Tool: Semantic search over support documentation
     
@@ -222,7 +222,7 @@ def search_support_docs(query: str, top_k: int = 3) -> dict:
             "error": str(e)
         }
 
-def search_release_notes(query: str, top_k: int = 3) -> dict:
+def search_release_notes(query: str = "", top_k: int = 3, **kwargs) -> dict:
     """
     Tool: Semantic search over release notes
     Same concept as search_support_docs, but different data source

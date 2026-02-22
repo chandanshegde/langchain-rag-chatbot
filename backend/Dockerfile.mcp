@@ -10,5 +10,8 @@ RUN apt-get update && apt-get install -y gcc sqlite3 libsqlite3-dev && rm -rf /v
 RUN pip install flask flask-cors chromadb PyYAML requests "google-generativeai"
 
 COPY mcp_server.py .
+COPY setup_database.py .
+COPY setup_embeddings.py .
+COPY data/ ./source_data/
 
 CMD ["python", "mcp_server.py"]

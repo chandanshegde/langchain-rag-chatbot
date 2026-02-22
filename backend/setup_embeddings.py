@@ -32,8 +32,8 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 CHROMA_PATH = "./chroma_db"
-SUPPORT_DOCS_PATH = "./data/support_docs"
-RELEASES_PATH = "./data/releases"
+SUPPORT_DOCS_PATH = os.getenv("SUPPORT_DOCS_PATH", "./source_data/support_docs")
+RELEASES_PATH = os.getenv("RELEASES_PATH", "./source_data/releases")
 
 # Chunk configuration
 # These values are tuned based on testing:
@@ -175,10 +175,10 @@ def embed_documents():
     # Google's text-embedding-004 produces 768-dimensional vectors
     google_ef = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
         api_key=GEMINI_API_KEY,
-        model_name="models/text-embedding-004"
+        model_name="models/gemini-embedding-001"
     )
     
-    print(f"\nUsing embedding model: text-embedding-004")
+    print(f"\nUsing embedding model: gemini-embedding-001")
     print(f"ChromaDB storage: {CHROMA_PATH}")
     
     # ========================================================================
