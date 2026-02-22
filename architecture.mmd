@@ -9,10 +9,11 @@ graph TD
     %% Nodes
     User(("User 🧑‍💻"))
     UI["Frontend (Svelte) 💻"]:::frontend
-    
+
     subgraph "Centralized SaaS Platform"
-        Orchestrator["Central Orchestrator (LangChain Agent) 🔥"]:::orchestrator
+        Orchestrator["Central Orchestrator (SSE Streaming) 🔥"]:::orchestrator
         Gemini["Google Gemini Model ✨"]:::llm
+        Redis[("Redis (Session Cache) ⚡")]:::db
     end
 
     subgraph "Tenant A Data Silo"
@@ -29,27 +30,26 @@ graph TD
 
     %% Connections
     User -- "Natural Language Query" --> UI
-    UI -- "POST /chat (Tenant context)" --> Orchestrator
-    
-    Orchestrator -- "LLM Prompting & Reasoning" --> Gemini
-    Gemini -- "Needs to call Tool XYZ" --> Orchestrator
-    
-    %% Multi-Tenant Routing
+    UI -- "POST /chat (Streaming SSE)" --> Orchestrator
+
+    Orchestrator -- "Fetch/Save history" --> Redis
+    Orchestrator -- "Real-time Callbacks" --> Gemini
+    Gemini -- "yield Thought/Action" --> Orchestrator
+
+    %% Multi-Tenant Routing (Addendum)
     Orchestrator -- "tools/call (JSON-RPC)" --> MCP_A
     Orchestrator -. "tools/call (JSON-RPC)" .-> MCP_B
-    
+
     %% Tenant A Tools
     MCP_A -- "execute_sql" --> DB_A
     MCP_A -- "search_docs" --> Chroma_A
-    
+
     %% Tenant B Tools
     MCP_B -. "execute_sql" .-> DB_B
     MCP_B -. "search_docs" .-> Chroma_B
-    
-    %% Return Path
-    DB_A -- "Query Results" --> MCP_A
-    MCP_A -- "Tool Data Context" --> Orchestrator
-    Orchestrator -- "Synthesize Data" --> Gemini
-    Gemini -- "Final Output Strings" --> Orchestrator
-    Orchestrator -- "Response Payload" --> UI
-    UI -- "Display Bubble" --> User
+
+    %% Streaming Return Path
+    DB_A -- "Results" --> MCP_A
+    MCP_A -- "Observation" --> Orchestrator
+    Orchestrator -- "data: {thought/obs}" --> UI
+    UI -- "Real-time Update" --> User

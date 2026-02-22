@@ -13,10 +13,11 @@ This project simulates a multi-tenant platform consiting of:
 
 | Component            | Technology         | Description                                    |
 | :------------------- | :----------------- | :--------------------------------------------- |
-| **Frontend**         | Svelte + Vite      | Modern, reactive UI with glassmorphism design. |
-| **Orchestrator**     | Python + Flask     | Central routing and LangChain agent hub.       |
+| **Frontend**         | Svelte + Vite      | Modern UI with Streaming & Markdown support.   |
+| **Orchestrator**     | Python + Flask     | Central routing with Real-time SSE Streaming.  |
 | **Agentic AI**       | LangChain + Gemini | **gemini-flash-latest** for LLM orchestration. |
 | **Embeddings**       | Google SDK         | **models/gemini-embedding-001** for RAG.       |
+| **Formatting**       | Marked.js          | Real-time markdown rendering in chat bubbles.  |
 | **Storage (SQL)**    | SQLite             | Structured data silo per tenant.               |
 | **Storage (Vector)** | ChromaDB           | Semantic vector search for documentation.      |
 | **Caching**          | Redis              | Production-grade session & memory management.  |
@@ -25,18 +26,14 @@ This project simulates a multi-tenant platform consiting of:
 
 ## High-Level Flow
 
-1.  **User Input:** The user types a query in the Svelte frontend and selects a tenant context.
-2.  **API Request:** Frontend calls the orchestrator's `/chat` endpoint with `tenant_id` and `session_id`.
-3.  **Context Retrieval:** Orchestrator fetches the last few messages for that session from **Redis**.
-4.  **LLM Reasoning:** The **LangChain Agent** (Gemini) evaluates the query. If it needs data, it constructs a JSON-RPC request.
-5.  **MCP Execution:** The tenant-specific MCP server executes the tool (SQL or Vector search) and returns raw results.
-6.  **Synthesis:** The LLM integrates the tool output into a natural language response.
-7.  **Persistance:** Orchestrator saves the new exchange back to Redis.
-8.  **Display:** The frontend renders the response and the agent's thought process (intermediate steps).
+1.  **User Input:** The user types a query and selects a tenant silo.
+2.  **Streaming Request:** Frontend opens a streaming POST request to the orchestrator.
+3.  **Context & Intent:** Orchestrator fetches history from **Redis** and triggers a **Senior AI Orchestrator** prompt to classify intent.
+4.  **Real-time Reasoning:** As the LLM reasons (Thought -> Action), steps are yielded instantly to the frontend via **Server-Sent Events (SSE)**.
+5.  **MCP Execution:** Isolated tenant MCP servers execute SQL/Vector tools and stream observations back.
+6.  **Interactive UI:** The frontend renders a typing animation, auto-expands reasoning chains, and formats the final answer using Markdown.
 
 ## Architecture Diagram
-
-Below is a sequence and structural flow of how the RAG chatbot integrates.
 
 ```mermaid
 graph TD
@@ -52,7 +49,7 @@ graph TD
     UI["Frontend (Svelte) 💻"]:::frontend
 
     subgraph "Centralized SaaS Platform"
-        Orchestrator["Central Orchestrator (LangChain Agent) 🔥"]:::orchestrator
+        Orchestrator["Central Orchestrator (SSE Streaming) 🔥"]:::orchestrator
         Gemini["Google Gemini Model ✨"]:::llm
         Redis[("Redis (Session Cache) ⚡")]:::db
     end
@@ -71,13 +68,13 @@ graph TD
 
     %% Connections
     User -- "Natural Language Query" --> UI
-    UI -- "POST /chat (Tenant context & Session ID)" --> Orchestrator
+    UI -- "POST /chat (Streaming SSE)" --> Orchestrator
 
     Orchestrator -- "Fetch/Save history" --> Redis
-    Orchestrator -- "LLM Prompting & Reasoning" --> Gemini
-    Gemini -- "Needs to call Tool XYZ" --> Orchestrator
+    Orchestrator -- "Real-time Callbacks" --> Gemini
+    Gemini -- "yield Thought/Action" --> Orchestrator
 
-    %% Multi-Tenant Routing
+    %% Multi-Tenant Routing (Addendum)
     Orchestrator -- "tools/call (JSON-RPC)" --> MCP_A
     Orchestrator -. "tools/call (JSON-RPC)" .-> MCP_B
 
@@ -89,13 +86,11 @@ graph TD
     MCP_B -. "execute_sql" .-> DB_B
     MCP_B -. "search_docs" .-> Chroma_B
 
-    %% Return Path
-    DB_A -- "Query Results" --> MCP_A
-    MCP_A -- "Tool Data Context" --> Orchestrator
-    Orchestrator -- "Synthesize Data" --> Gemini
-    Gemini -- "Final Output Strings" --> Orchestrator
-    Orchestrator -- "Response Payload" --> UI
-    UI -- "Display Bubble" --> User
+    %% Streaming Return Path
+    DB_A -- "Results" --> MCP_A
+    MCP_A -- "Observation" --> Orchestrator
+    Orchestrator -- "data: {thought/obs}" --> UI
+    UI -- "Real-time Update" --> User
 ```
 
 ## Backend Services
@@ -109,6 +104,15 @@ graph TD
   - **Reasoning Loop & Transparency:** The defined prompt forces the LLM to execute `get_database_schema` before any data queries. More impressively, by capturing _intermediate steps_, the orchestrator passes back the LLM's raw thoughts and step-by-step tool resolutions. The frontend UI renders this "Reasoning Chain" transparently to the user!
   - **Closed Loop Execution:** The agent interacts with the MCP Server iteratively until it constructs the final response.
 - **Dynamic Tenant Discovery:** The orchestrator dynamically scans environment variables for the `TENANT_*_MCP_URL` pattern. This removes hardcoded endpoints and allows the platform to scale to new tenants purely through configuration in `docker-compose.yml`.
+- **Real-time SSE Streaming:**
+  Unlike traditional APIs that wait for the full LLM response, our orchestrator uses a **custom Callback Handler** and Python **Generators** to stream data as it's generated.
+  - **StreamingCallbackHandler:** Intercepts `on_agent_action` and `on_tool_end` to capture the LLM's "inner monologue" (thoughts) and tool usage.
+  - **SSE Protocol:** Uses `flask.Response(generate(), mimetype='text/event-stream')` to push JSON chunks to the Svelte frontend via a persistent HTTP connection.
+- **Sophisticated System Prompting (Advanced Agentic Design):**
+  We implement a high-authority system prompt that enforces strict operational protocols:
+  1.  **Mandatory Intent Classification:** Every response MUST start with a classified intent (e.g., `Thought: Intent Classification: DATABASE_QUERY.`).
+  2.  **Category Isolation:** If the agent identifies a database-related intent, it is **strictly forbidden** from searching documentation unless the SQL attempt fails and the user explicitly grants permission to switch categories.
+  3.  **SQL Transparency:** The agent is required to explicitly describe the SQL query and its rationale in its "Thought" block before execution.
 - **Production-Grade Session Management (Redis Implementation):**
   Each user interaction leverages a unique `session_id`. The backend identifies sessions using a Redis **String** data structure, where chat histories are stored as **JSON-serialized** arrays.
   - **Key Pattern:** `session:{session_id}`
@@ -149,6 +153,54 @@ graph TD
   3. Caches these agents in the `AGENT_CACHE` memory.
      This ensures that when a user sends their first message, the agent is already "warm" and ready to respond instantly.
 
+#### The Executive System Prompt
+
+The orchestrator uses a highly authoritative prompt to ensure logical consistency and prevent tool misuse. The prompt architecture forces a multi-step reasoning protocol:
+
+```text
+You are a senior AI orchestrator for a Multi-Tenant SaaS platform.
+CORE OPERATIONAL PROTOCOLS:
+1. MANDATORY INTENT CLASSIFICATION: Your VERY FIRST 'Thought' in EVERY response MUST start with: 'Intent Classification: <CATEGORY>'.
+2. SQL TRANSPARENCY: When performing a DATABASE_QUERY, your 'Thought' MUST explicitly describe the SQL query you are about to run and why.
+3. CATEGORY ISOLATION (STRICT):
+   - If intent is DATABASE_QUERY: Use ONLY 'get_database_schema' and 'run_sql_query'. Do not automatically switch to documentation.
+   - If intent is DOCUMENTATION_SEARCH: Use ONLY 'search_support_docs' and 'search_release_notes'.
+4. SQL EXECUTION FLOW: Always call 'get_database_schema' once per session before running any 'run_sql_query'.
+```
+
+#### Technical Streaming Implementation (Python/SSE)
+
+To achieve real-time transparency for both "Thoughts" and "Observations", we implemented a custom LangChain `BaseCallbackHandler` that pushes events to a thread-safe queue:
+
+```python
+# 1. Custom Handler to capture intermediate steps and tool results
+class StreamingCallbackHandler(BaseCallbackHandler):
+    def on_agent_action(self, action, **kwargs):
+        # Extract the thought text leading up to the tool action
+        thought_text = action.log.split("Action:")[0].replace("Thought:", "").strip()
+        self.q.put({
+            "type": "thought",
+            "tool": action.tool,
+            "tool_input": action.tool_input,
+            "thought": thought_text
+        })
+
+    def on_tool_end(self, output, **kwargs):
+        self.q.put({"type": "observation", "observation": str(output)})
+
+# 2. Server-Sent Events (SSE) Generator
+def generate():
+    q = queue.Queue()
+    handler = StreamingCallbackHandler(q)
+    # Start the agent in a background thread
+    threading.Thread(target=run_agent, args=(q, handler)).start()
+
+    while True:
+        item = q.get()
+        if item is None: break # Sentinel for completion
+        yield f"data: {json.dumps(item)}\n\n"
+```
+
 ### B. Tenant MCP Tool Servers (`backend/mcp_server.py`)
 
 - Designed this to be a strict implementation of JSON-RPC 2.0 without any NLP magic overlapping.
@@ -177,6 +229,11 @@ Created an aesthetic, component-based Svelte interface utilizing premium glassmo
 - **Styling:** Premium Vanilla CSS with custom scrollbars, glowing borders, and chat bubble pop-in animations.
 - **Session Swapping:** Intelligent hot-swapping between distinct conversations without losing UI local state.
 - **Transparency:** Collapsible "Reasoning Chain" UI that iterate through the backend's `thoughts` response. This allows users to verify exactly which SQL queries were run or which documentation was retrieved.
+- **UI Feedback & Aesthetics:**
+  - **Typing Indicator Component:** A dedicated `TypingIndicator.svelte` component provides immediate pulsing animation after a message is sent, eliminating perceived latency.
+  - **Intelligent Auto-Expansion:** The reasoning section automatically expands when the first thought arrives (but can be manually closed).
+  - **SQL Formatting:** The UI detects `run_sql_query` actions and renders the input as formatted SQL code blocks.
+  - **Markdown & Code Rendering:** Integrated `marked.js` to render rich text, lists, and code blocks from the LLM's final answers.
 
   ```svelte
   <!-- Svelte 5 logic for rendering reasoning -->
@@ -246,3 +303,12 @@ Included in `frontend/package.json`:
 - `svelte` (v5.45.2): UI framework utilizing the new Runes API (`$state`, `$effect`).
 - `vite` (v7.3.1): Frontend build tool and development server.
 - `@sveltejs/vite-plugin-svelte`: Svelte integration for Vite.
+
+## Project Evolution Summary
+
+This project evolved from a standard RAG bot into a production-ready multi-tenant orchestrator featuring:
+
+- ✅ **SSE Streaming** for zero-latency feedback.
+- ✅ **Advanced System Prompting** for intent-based tool isolation.
+- ✅ **Rich UI feedback** including typing animations and SQL transparency.
+- ✅ **Svelte 5 Runes** for high-performance reactive state management.

@@ -182,7 +182,8 @@ def get_or_create_agent(tenant_id: str, mcp_url: str, callbacks=None):
         llm,
         agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
         verbose=True,
-        max_iterations=10,
+        max_iterations=20, # Increased from 10 to allow more complex reasoning
+        early_stopping_method="generate",
         handle_parsing_errors=True,
         return_intermediate_steps=True
     )
@@ -239,16 +240,25 @@ def chat():
         context_prompt = f"\n\nRecent Chat History with User:\n{history_text}\n" if history else ""
 
         system_prefix = (
-            f"You are a helpful AI assistant connected to the Multi-Tenant Backend for '{tenant_id}'.\n"
+            f"You are a senior AI orchestrator for a Multi-Tenant SaaS platform. You handle data querying and documentation retrieval for '{tenant_id}'.\n\n"
+            "CORE OPERATIONAL PROTOCOLS:\n"
+            "1. MANDATORY INTENT CLASSIFICATION: Your VERY FIRST 'Thought' in EVERY response MUST start with: 'Intent Classification: <CATEGORY>'.\n"
+            "   Categories: [DATABASE_QUERY, DOCUMENTATION_SEARCH, SYSTEM_HEALTH_CHECK, CROSS_TENANT_ANALYSIS].\n"
+            "   Example: 'Thought: Intent Classification: DATABASE_QUERY. The user is asking for user counts.'\n\n"
+            "2. SQL TRANSPARENCY: When performing a DATABASE_QUERY, your 'Thought' MUST explicitly describe the SQL query you are about to run and why.\n\n"
+            "3. CATEGORY ISOLATION (STRICT):\n"
+            "   - If intent is DATABASE_QUERY: Use ONLY 'get_database_schema' and 'run_sql_query'. If you cannot find the answer in the database, DO NOT proceed to documentation. Instead, provide a 'Final Answer' explaining what you tried and ASKING the user if they want you to search support/release docs instead.\n"
+            "   - If intent is DOCUMENTATION_SEARCH: Use ONLY 'search_support_docs' and 'search_release_notes'. If you cannot find the answer, DO NOT try SQL. Provide a 'Final Answer' and ASK if you should query the database.\n"
+            "   - DO NOT automatically switch categories unless the user explicitly gave permission in the chat history.\n\n"
+            "4. SQL EXECUTION FLOW: Always call 'get_database_schema' once per session before running any 'run_sql_query'. Do not guess column names.\n"
+            "5. MULTI-TENANT: If the query involves multiple tenants, clearly state which tenant you are currently accessing in your thoughts.\n\n"
             "You MUST follow the ReAct format precisely:\n"
-            "Thought: <your reasoning>\n"
+            "Thought: Intent Classification: <CATEGORY>. <Reasoning with explicit SQL logic if applicable>\n"
             "Action: <tool_name>\n"
-            "Action Input: <tool_input>\n\n"
-            "Once you have the final information, you MUST respond in this format:\n"
-            "Final Answer: <your natural language response to the user>\n\n"
-            "Tool Usage Rules:\n"
-            "- If you don't know the versions, search for 'list all versions' first.\n"
-            "- Always use 'get_database_schema' before running any SQL queries."
+            "Action Input: <tool_input>\n"
+            "Observation: <tool_output>\n"
+            "... (repeat if necessary)\n"
+            "Final Answer: <your natural language response to the user>\n"
         )
         
         full_query = f"{system_prefix}{context_prompt}\n\nUser Question: {user_query}"

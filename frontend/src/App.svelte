@@ -185,21 +185,27 @@
 <style>
   main {
     width: 100%;
-    max-width: 900px;
-    height: 85vh;
+    max-width: 1000px;
+    height: 95vh;
     margin: auto;
+    padding: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .chat-container {
     background: var(--bg-secondary);
-    border-radius: 16px;
+    border-radius: 24px;
     border: 1px solid var(--border-color);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.6);
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
     overflow: hidden;
-    backdrop-filter: blur(20px);
+    backdrop-filter: blur(30px);
+    scrollbar-gutter: stable;
   }
 
   header {
